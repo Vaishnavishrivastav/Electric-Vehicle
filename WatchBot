@@ -1,0 +1,71 @@
+import cv2
+import face_recognition
+import os
+import datetime
+import numpy as np
+
+# --- Setup ---
+KNOWN_FACES_DIR = "known_faces"
+ATTENDANCE_LOG = "attendance_log.csv"
+TOLERANCE = 0.6
+FRAME_THICKNESS = 3
+
+# Load known faces
+print("[INFO] Loading known faces...")
+known_faces = []
+known_names = []
+
+for name in os.listdir(KNOWN_FACES_DIR):
+    for filename in os.listdir(f"{KNOWN_FACES_DIR}/{name}"):
+        image = face_recognition.load_image_file(f"{KNOWN_FACES_DIR}/{name}/{filename}")
+        encoding = face_recognition.face_encodings(image)[0]
+        known_faces.append(encoding)
+        known_names.append(name)
+
+# --- Attendance Function ---
+def mark_attendance(name):
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with open(ATTENDANCE_LOG, "a") as f:
+        f.write(f"{name},{timestamp}\n")
+    print(f"[ATTENDANCE] {name} marked present at {timestamp}")
+
+# --- Start Video Capture ---
+print("[INFO] Starting camera...")
+video = cv2.VideoCapture(0)
+
+while True:
+    ret, frame = video.read()
+    rgb_frame = frame[:, :, ::-1]  # Convert BGR to RGB
+
+    face_locations = face_recognition.face_locations(rgb_frame)
+    face_encodings = face_recognition.face_encodings(rgb_frame, face_locations)
+
+    for face_encoding, location in zip(face_encodings, face_locations):
+        results = face_recognition.compare_faces(known_faces, face_encoding, TOLERANCE)
+        match = None
+
+        if True in results:
+            match = known_names[results.index(True)]
+            mark_attendance(match)
+            color = (0, 255, 0)
+        else:
+            match = "UNKNOWN"
+            color = (0, 0, 255)
+            print("[ALERT] Unrecognized person detected!")
+
+        # Draw box
+        top_left = (location[3], location[0])
+        bottom_right = (location[1], location[2])
+        cv2.rectangle(frame, top_left, bottom_right, color, FRAME_THICKNESS)
+
+        # Label
+        cv2.putText(frame, match, (location[3], location[2] + 20),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.75, color, 2)
+
+    cv2.imshow("WatchBot Security Feed", frame)
+
+    if cv2.waitKey(1) == ord("q"):
+        break
+
+video.release()
+cv2.destroyAllWindows()
